@@ -1,0 +1,40 @@
+# Prometheus configuration for Hyra Scribe Ledger monitoring
+
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+  external_labels:
+    cluster: 'hyra-scribe-ledger'
+    environment: 'development'
+
+# Alertmanager configuration (optional)
+# alerting:
+#   alertmanagers:
+#     - static_configs:
+#         - targets:
+#           - alertmanager:9093
+
+# Load rules once and periodically evaluate them
+# rule_files:
+#   - "alerts.yml"
+
+scrape_configs:
+  # Hyra Scribe Ledger Cluster Nodes
+  - job_name: 'scribe-ledger-nodes'
+    static_configs:
+      - targets:
+          - 'host.docker.internal:8001'  # Node 1
+          - 'host.docker.internal:8002'  # Node 2
+          - 'host.docker.internal:8003'  # Node 3
+        labels:
+          cluster: 'main'
+          service: 'scribe-ledger'
+    metrics_path: '/metrics/prometheus'
+    scrape_interval: 10s
+    scrape_timeout: 5s
+
+  # Prometheus self-monitoring
+  - job_name: 'prometheus'
+    static_configs:
+      - targets: ['localhost:9090']
+

@@ -465,11 +465,81 @@ async fn metrics_handler(State(state): State<AppState>) -> impl IntoResponse {
     axum::Json(metrics)
 }
 
+/// Prometheus metrics handler
+async fn prometheus_metrics_handler(State(state): State<AppState>) -> impl IntoResponse {
+    let metrics = state.api.metrics().await;
+    let node_id = state.node_id;
+    
+    // Convert Raft metrics to Prometheus format
+    let mut output = String::new();
+    
+    // Node health
+    output.push_str("# HELP scribe_ledger_node_health Node health status (1 = ok)\n");
+    output.push_str("# TYPE scribe_ledger_node_health gauge\n");
+    output.push_str(&format!("scribe_ledger_node_health{{node=\"{}\"}} 1\n", node_id));
+    output.push_str("\n");
+    
+    // Raft current term
+    output.push_str("# HELP scribe_ledger_raft_current_term Current Raft term\n");
+    output.push_str("# TYPE scribe_ledger_raft_current_term gauge\n");
+    output.push_str(&format!("scribe_ledger_raft_current_term{{node=\"{}\"}} {}\n", 
+        node_id, metrics.current_term));
+    output.push_str("\n");
+    
+    // Raft current leader
+    if let Some(leader_id) = metrics.current_leader {
+        output.push_str("# HELP scribe_ledger_raft_current_leader Current Raft leader ID\n");
+        output.push_str("# TYPE scribe_ledger_raft_current_leader gauge\n");
+        output.push_str(&format!("scribe_ledger_raft_current_leader{{node=\"{}\"}} {}\n", 
+            node_id, leader_id));
+        output.push_str("\n");
+    }
+    
+    // Raft commit index
+    if let Some(commit_index) = metrics.last_log_index {
+        output.push_str("# HELP scribe_ledger_raft_commit_index Raft commit index\n");
+        output.push_str("# TYPE scribe_ledger_raft_commit_index gauge\n");
+        output.push_str(&format!("scribe_ledger_raft_commit_index{{node=\"{}\"}} {}\n", 
+            node_id, commit_index));
+        output.push_str("\n");
+    }
+    
+    // Raft last applied
+    if let Some(last_applied) = metrics.last_applied {
+        output.push_str("# HELP scribe_ledger_raft_last_applied Raft last applied index\n");
+        output.push_str("# TYPE scribe_ledger_raft_last_applied gauge\n");
+        output.push_str(&format!("scribe_ledger_raft_last_applied{{node=\"{}\"}} {}\n", 
+            node_id, last_applied.index));
+        output.push_str("\n");
+    }
+    
+    // Cache metrics
+    let cache_size = state.api.cache_size();
+    let cache_capacity = state.api.cache_capacity();
+    
+    output.push_str("# HELP scribe_ledger_cache_size Current cache size\n");
+    output.push_str("# TYPE scribe_ledger_cache_size gauge\n");
+    output.push_str(&format!("scribe_ledger_cache_size{{node=\"{}\"}} {}\n", node_id, cache_size));
+    output.push_str("\n");
+    
+    output.push_str("# HELP scribe_ledger_cache_capacity Cache capacity\n");
+    output.push_str("# TYPE scribe_ledger_cache_capacity gauge\n");
+    output.push_str(&format!("scribe_ledger_cache_capacity{{node=\"{}\"}} {}\n", node_id, cache_capacity));
+    output.push_str("\n");
+    
+    // Return as plain text
+    (
+        [(axum::http::header::CONTENT_TYPE, "text/plain; charset=utf-8")],
+        output
+    )
+}
+
 /// Start HTTP API server
 async fn start_http_server(addr: &str, state: AppState) -> Result<()> {
     let app = Router::new()
         .route("/health", get(health_handler))
         .route("/metrics", get(metrics_handler))
+        .route("/metrics/prometheus", get(prometheus_metrics_handler))
         .route("/:key", put(put_handler))
         .route("/:key", get(get_handler))
         .route("/:key", delete(delete_handler))
